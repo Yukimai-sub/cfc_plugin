@@ -8,6 +8,11 @@
 // C: 0-S 1-M
 
 #include <cstdio>
+#include <gcc-plugin.h>
+#include <tree.h>
+#include <cgraph.h>
+#include "attribute.h"
+#include "cmd-arg.h"
 
 
 /**
@@ -52,4 +57,10 @@ const char *inst_ctrlsig_s(int d, int S, int D)
 const char *inst_ctrlsig_m(int d, int S, int D)
 {
     return _inst_ctrlsig(d, S, D, 1);
+}
+
+bool is_cfc_enabled(cgraph_node *func, basic_block bb)
+{
+  int attr = get_func_cfc_attr(func->get_fun()->decl);
+  return cmd_cfc_enabled ? attr != CFC_ATTR_DISABLE : attr == CFC_ATTR_ENABLE;
 }

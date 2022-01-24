@@ -13,10 +13,13 @@
 #include "cgraph.h"
 #include "plugin-version.h"
 #include "tree-pass.h"
-#include "util.h"
 #include <iostream>
 #include <map>
 #include <vector>
+
+#include "util.h"
+#include "attribute.h"
+#include "cmd-arg.h"
 
 typedef uint8_t cfcss_sig_t;
 
@@ -102,8 +105,10 @@ unsigned int pass_cfcss::execute(function *fun) {
     // We do not rule out the compiler-created clones.
     if (!node->has_gimple_body_p())
       continue;
+    // skip if the function disabled cfc
+    if (!is_cfc_enabled(node)) continue;
     for (auto it = node->callees; it != nullptr; it = it->next_callee) {
-        if (it->callee->has_gimple_body_p()) {
+        if (it->callee->has_gimple_body_p() && is_cfc_enabled(it->callee)) {
           
           // Splitting the basic block now can affect the iteration, so we
           // choose to move the splitting part outside.
@@ -123,7 +128,7 @@ unsigned int pass_cfcss::execute(function *fun) {
   }
 
   FOR_EACH_FUNCTION (node) {
-    if (!node->has_gimple_body_p())
+    if (!node->has_gimple_body_p() || !is_cfc_enabled(node))
       continue;
     clones[std::make_pair(node, 0)] = node;
     for (size_t i = 1; i < num_clones[node]; ++i) {
@@ -132,7 +137,7 @@ unsigned int pass_cfcss::execute(function *fun) {
                                              nullptr, "");
       for (auto it1 = new_fun->callees, it2 = node->callees;
            it1 != nullptr; it1 = it1->next_callee, it2 = it2->next_callee) {
-        if (it1->callee->has_gimple_body_p()) {
+        if (it1->callee->has_gimple_body_p() && is_cfc_enabled(it1->callee)) {
           call_sites.push_back(it1);
           dup_num[it1] = dup_num[it2];
         }
@@ -169,13 +174,15 @@ unsigned int pass_cfcss::execute(function *fun) {
   }
 
   FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node) {
+    if(!is_cfc_enabled(node)) continue; 
     FOR_EACH_BB_FN (bb, node->get_fun()) {
       // Naïve approach to assign signatures.
       sig[bb] = acc++;
     }
   }
 
-  FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node)
+  FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node) {
+    if(!is_cfc_enabled(node)) continue;
     FOR_EACH_BB_FN (bb, node->get_fun()) {
       size_t pred_set_len = pred_set.count(bb);
       auto pred_set_range = pred_set.equal_range(bb);
@@ -210,8 +217,10 @@ unsigned int pass_cfcss::execute(function *fun) {
         diff[bb] = sig[bb];
       }
     }
+  }
 
-  FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node)
+  FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node) {
+    if(!is_cfc_enabled(node)) continue;
     FOR_EACH_BB_FN (bb, node->get_fun()) {
       // A second adjusting signature has to be assigned when
       // (a) Both successors are multi-fan-in basic blocks, and
@@ -222,19 +231,17 @@ unsigned int pass_cfcss::execute(function *fun) {
           && (*(*bb->succs)[0]->dest->preds)[0]->src
             != (*(*bb->succs)[1]->dest->preds)[0]->src) {
         auto gsi = gsi_last_bb(bb);
-        basic_block succs[] = {(*bb->succs)[0]->dest, (*bb->succs)[1]->dest};
-        basic_block fallthru_succ = find_fallthru_edge(bb->succs)->dest;
 
-        gsi_insert_after(&gsi, gimple_build_asm_vec(inst_ctrlsig_s(0,
-          sig[bb], sig[bb] ^ sig[(*fallthru_succ->preds)[0]->src]),
-          nullptr, nullptr, nullptr, nullptr),
-          GSI_SAME_STMT);
+        // No fallthru edges are allowed according to the semantics of
+        // gimple_cond. Here, we simply assume the 1-indexed one is the
+        // fallthru edge.
+        basic_block fallthru_succ = (*bb->succs)[1]->dest;
         fall_thru_sigs.push_back(std::make_pair(node->get_fun(), gsi_stmt(gsi)));
-        auto br_target = succs[0] == fallthru_succ ? succs[0] : succs[1];
+        auto br_target = (*bb->succs)[0]->dest;
         dmap[bb] = sig[bb] ^ sig[(*br_target->preds)[0]->src];
       }
     }
-
+  }
   for (cgraph_edge *edge : call_sites_undef) {
     auto gsi = gsi_for_stmt(edge->call_stmt);
     auto stmt = gimple_build_asm_vec(
@@ -255,14 +262,22 @@ unsigned int pass_cfcss::execute(function *fun) {
   }
 
   for (auto &pair : fall_thru_sigs) {
-    fprintf(stderr, "SPECIAL CASE\n");
+    fprintf(stderr, "Control flow checking note: SPECIAL CASE\n");
     push_cfun(pair.first);
-    split_block(pair.second->bb, pair.second);
+    auto pred_bb = pair.second->bb;
+    auto orig_edge = (*pred_bb->succs)[1];
+    auto succ_bb = orig_edge->dest;
+    cfcss_sig_t dmap_val = sig[pred_bb] ^ sig[(*succ_bb->preds)[0]->src];
+    bb = split_edge(orig_edge);
+    sig[bb] = sig[pred_bb];
+    diff[bb] = 0;
+    dmap[bb] = dmap_val;
     pop_cfun();
   }
 
 
   FOR_EACH_FUNCTION_WITH_GIMPLE_BODY (node) {
+    if (!is_cfc_enabled(node)) continue;
     push_cfun(node->get_fun());
     FOR_EACH_BB_FN (bb, cfun) {
       auto gsi = gsi_after_labels(bb);
@@ -309,6 +324,9 @@ int plugin_init(plugin_name_args *plugin_info, plugin_gcc_version *version) {
     nullptr,
     &pass_info
   );
+
+  cfc_attr_init(plugin_info->base_name);
+  cfc_cmd_arg_init(plugin_info);
   
   return 0;
 }
