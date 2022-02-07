@@ -64,3 +64,9 @@ bool is_cfc_enabled(cgraph_node *func, basic_block bb)
   int attr = get_func_cfc_attr(func->get_fun()->decl);
   return cmd_cfc_enabled ? attr != CFC_ATTR_DISABLE : attr == CFC_ATTR_ENABLE;
 }
+
+bool is_cfc_enabled(function *func)
+{
+  int attr = get_func_cfc_attr(func->decl);
+  return cmd_cfc_enabled ? attr != CFC_ATTR_DISABLE : attr == CFC_ATTR_ENABLE;
+}
