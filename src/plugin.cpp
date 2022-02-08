@@ -22,6 +22,8 @@
 
 typedef uint8_t cfcss_sig_t;
 
+#define BUF_SIZE 64
+
 // This plugin is licensed under GPL.
 #ifdef _WIN32
 __declspec(dllexport)
@@ -77,6 +79,8 @@ unsigned int pass_cfcss::execute(function *fun) {
   basic_block bb;
 
   if(!is_cfc_enabled(fun)) return 0;
+  // Instruction string buffer.
+  char inst[BUF_SIZE];
 
   push_cfun(fun);
 
@@ -149,18 +153,23 @@ unsigned int pass_cfcss::execute(function *fun) {
     cfcss_sig_t cur_diff = diff[bb];
     cfcss_sig_t cur_adj = dmap.find(bb) != dmap.end() ? dmap[bb] : 0;
 
-    if (bb->preds->length() >= 2)
-      stmt = gimple_build_asm_vec(inst_ctrlsig_m(cur_diff, cur_sig, cur_adj),
+    
+
+    if (bb->preds->length() >= 2) {
+      sprintf(inst, "ctrlsig_m %d,%d,%d", cur_diff, cur_sig, cur_adj);
+      stmt = gimple_build_asm_vec(inst,
                                   nullptr, nullptr, nullptr, nullptr);
-    else
-      stmt = gimple_build_asm_vec(inst_ctrlsig_s(cur_diff, cur_sig, cur_adj),
+    } else {
+      sprintf(inst, "ctrlsig_s %d,%d,%d", cur_diff, cur_sig, cur_adj);
+      stmt = gimple_build_asm_vec(inst,
                                   nullptr, nullptr, nullptr, nullptr);
+    }
     gimple_asm_set_volatile(stmt, true);
     gsi_insert_before(&gsi, stmt, GSI_NEW_STMT);
 
     if ((*bb->preds)[0]->src == fun->cfg->x_entry_block_ptr) {
       stmt = gimple_build_asm_vec(
-        ".insn r CUSTOM_1, 0, 0, x2, x0, x0",
+        "pushsig",
         nullptr, nullptr, nullptr, nullptr
       );
       gsi_insert_before(&gsi, stmt, GSI_SAME_STMT);
@@ -168,13 +177,25 @@ unsigned int pass_cfcss::execute(function *fun) {
       gimple_set_modified(stmt, false);
     }
 
+    gsi = gsi_last_bb(bb);
+    if (gimple_code(gsi_stmt(gsi)) == GIMPLE_COND
+        || gimple_code(gsi_stmt(gsi)) == GIMPLE_CALL
+        || gimple_code(gsi_stmt(gsi)) == GIMPLE_RETURN)
+      gsi_prev(&gsi);
+    stmt = gimple_build_asm_vec(
+      "crcsig 0",
+      nullptr, nullptr, nullptr, nullptr
+    );
+    gsi_insert_after(&gsi, stmt, GSI_NEW_STMT);
+    gimple_asm_set_volatile(stmt, true);
+    gimple_set_modified(stmt, false);
+
     if ((*bb->succs)[0]->dest == fun->cfg->x_exit_block_ptr) {
-      gsi = gsi_last_bb(bb);
       stmt = gimple_build_asm_vec(
-        ".insn r CUSTOM_1, 0, 0, x3, x0, x0",
+        "popsig",
         nullptr, nullptr, nullptr, nullptr
       );
-      gsi_insert_before(&gsi, stmt, GSI_SAME_STMT);
+      gsi_insert_after(&gsi, stmt, GSI_SAME_STMT);
       gimple_asm_set_volatile(stmt, true);
       gimple_set_modified(stmt, false);
     }
