@@ -6,12 +6,12 @@ ifdef CROSSCOMPILE # Note: Cross compilation has not been tested
 	PLUGINTARGET=cfc.dll
 else
 	CC=g++
-	CCFLAGS=-I`riscv64-unknown-elf-gcc -print-file-name=plugin`/include -I/usr/local/include -fPIC -fno-rtti -I./include
+	CCFLAGS=-I`$(RVCC) -print-file-name=plugin`/include -I/usr/local/include -fPIC -fno-rtti -I./include
 	LDFLAGS=-shared
 	STATICLIB=
 	PLUGINTARGET=cfc.so
 endif
-RVCC=riscv64-unknown-elf-g++
+RVCC=/opt/riscv/bin/riscv64-unknown-elf-g++
 PLUGINSRC=$(wildcard src/*.cpp)
 PLUGINHDR=$(wildcard include/*.h)
 PLUGINOBJ=$(PLUGINSRC:src/%.cpp=%.o)
