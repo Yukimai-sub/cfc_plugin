@@ -11,7 +11,7 @@ else
 	STATICLIB=
 	PLUGINTARGET=cfc.so
 endif
-RVCC=/opt/riscv/bin/riscv64-unknown-elf-g++
+RVCC=riscv64-unknown-elf-g++
 PLUGINSRC=$(wildcard src/*.cpp)
 PLUGINHDR=$(wildcard include/*.h)
 PLUGINOBJ=$(PLUGINSRC:src/%.cpp=%.o)
