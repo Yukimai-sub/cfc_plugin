@@ -1,6 +1,6 @@
 #!/bin/bash
 
-RVCC=/opt/riscv/bin/riscv64-unknown-elf-g++
+RVCC=riscv64-unknown-elf-g++
 TRVCC=../rvi/bin/riscv64-unknown-elf-g++
 
 for fsrc in test/*.cpp
